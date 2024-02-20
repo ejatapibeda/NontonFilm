@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IMDB Search</title>
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <h1 class="text-center my-4">Cari Film atau Seri</h1>
+      <div class="row">
+        <div class="col-md-8 offset-md-2">
+          <form id="searchForm">
+            <div class="input-group mb-3">
+              <select id="type" class="custom-select">
+                <option value="movie" selected>Film</option>
+                <option value="tvSeries">Seri</option>
+              </select>
+              <input
+                type="text"
+                id="searchText"
+                class="form-control"
+                placeholder="Masukkan judul..."
+              />
+              <div class="input-group-append">
+                <button class="btn btn-primary" type="submit">Cari</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div id="results" class="row"></div>
+    </div>
+
+    <!-- Modal -->
+    <div
+      class="modal fade"
+      id="imdbModal"
+      tabindex="-1"
+      role="dialog"
+      aria-labelledby="imdbModalLabel"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="imdbModalLabel">Detail Film/Seri</h5>
+            <button
+              type="button"
+              class="close"
+              data-dismiss="modal"
+              aria-label="Close"
+            >
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p id="imdbId"></p>
+            <button onclick="copyToClipboard('imdbId')" class="btn btn-primary">
+              Salin
+            </button>
+            <select id="season" class="custom-select mt-3">
+              <!-- Pilihan season akan ditampilkan di sini -->
+            </select>
+            <select id="episode" class="custom-select mt-3">
+              <!-- Pilihan episode akan ditampilkan di sini -->
+            </select>
+            <p id="source" class="mt-3"></p>
+            <button
+              id="linksource"
+              onclick="copyToClipboard('source')"
+              class="btn btn-primary"
+            >
+              Salin
+            </button>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-dismiss="modal"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"></script>
+    <script>
+      // Tambahkan variabel global
+      let selectedSeasonId = 1; // Atur nilai default sesuai kebutuhan
+      let selectedEpisodeIdx = 1; // Atur nilai default sesuai kebutuhan
+
+      $(document).ready(() => {
+        $("#searchForm").on("submit", (e) => {
+          e.preventDefault();
+          let searchText = $("#searchText").val();
+          let type = $("#type").val();
+          getResults(searchText, type);
+        });
+
+        // Tambahkan event handler untuk dropdown tipe
+        $("#type").on("change", () => {
+          let type = $("#type").val();
+          if (type === "movie") {
+            // Sembunyikan dropdown season dan episode jika tipe adalah 'movie'
+            $("#season").hide();
+            $("#episode").hide();
+            $("#linksource").hide();
+          } else {
+            // Tampilkan dropdown season dan episode jika tipe bukan 'movie'
+            $("#season").show();
+            $("#episode").show();
+            $("#linksource").hide();
+          }
+        });
+
+        // Tambahkan event handler untuk dropdown season
+        // Tambahkan event handler untuk dropdown season
+        $("#season").on("change", () => {
+          $("#source").text(`Loading...`);
+          $("#linksource").hide();
+          let seasonId = $("#season").val();
+          if (seasonId) {
+            // Memperbarui variabel global
+            selectedSeasonId = seasonId;
+
+            // Memanggil getEpisodes dengan seasonId yang dipilih
+            getEpisodes(seasonId);
+
+            // Mendapatkan imdbId dan type
+            let imdbId = $("#imdbId").text();
+            let type = $("#type").val();
+
+            // Memanggil fetchService dengan parameter sesuai yang dipilih
+            fetchService(
+              type,
+              imdbId,
+              selectedSeasonId,
+              selectedEpisodeIdx
+            ).then((serviceData) => {
+              // Tampilkan data service di bawah copy imdb id modal
+              console.log("Service Data:", serviceData);
+              shortenUrl(
+                `https://hacker.j7popa.easypanel.host/${serviceData.source}`
+              ).then((shortenedUrl) => {
+                $("#source").text(`${shortenedUrl}`);
+                $("#linksource").show();
+              });
+            });
+          }
+        });
+        // Tambahkan event handler untuk dropdown episode
+        $("#episode").on("change", () => {
+          $("#source").text(`Loading...`);
+          $("#linksource").hide();
+          let episodeIdx = $("#episode").val();
+          if (episodeIdx) {
+            // Memperbarui variabel global
+            selectedEpisodeIdx = episodeIdx;
+
+            // Mendapatkan imdbId dan type
+            let imdbId = $("#imdbId").text();
+            let type = $("#type").val();
+
+            // Memanggil fetchService dengan parameter sesuai yang dipilih
+            fetchService(
+              type,
+              imdbId,
+              selectedSeasonId,
+              selectedEpisodeIdx
+            ).then((serviceData) => {
+              // Tampilkan data service di bawah copy imdb id modal
+              console.log("Service Data:", serviceData);
+              shortenUrl(
+                `https://hacker.j7popa.easypanel.host/${serviceData.source}`
+              ).then((shortenedUrl) => {
+                $("#source").text(`${shortenedUrl}`);
+                $("#linksource").show();
+              });
+            });
+          }
+        });
+      });
+
+      function getResults(searchText, type) {
+        axios
+          .get(
+            `https://cors.smashystream.workers.dev/?destination=https://imdb-api.projects.thetuhin.com/search?query=${searchText}`
+          )
+          .then((response) => {
+            let results = response.data.results;
+            let output = "";
+            $.each(results, (index, result) => {
+              if (result.type === type) {
+                output += `
+                            <div class="col-md-3">
+                                <div class="card mb-4 shadow-sm">
+                                    <img class="bd-placeholder-img card-img-top" src="${result.image}">
+                                    <div class="card-body">
+                                        <h5 class="card-title">${result.title}</h5>
+                                        <a onclick="resultSelected('${result.id}')" class="btn btn-primary" href="#">Detail</a>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+              }
+            });
+
+            $("#results").html(output);
+          })
+          .catch((err) => {
+            console.log(err);
+          });
+      }
+
+      function resultSelected(id) {
+        let type = $("#type").val();
+        axios
+          .get(
+            `https://cors.smashystream.workers.dev/?destination=https://imdb-api.projects.thetuhin.com/title/${id}`
+          )
+          .then((response) => {
+            let imdbId = response.data.id;
+            $("#imdbId").text(imdbId);
+            $("#imdbModal").modal("show");
+
+            if (type === "movie") {
+              // Sembunyikan dropdown season dan episode jika tipe adalah 'movie'
+              $("#season").hide();
+              $("#episode").hide();
+              $("#source").text(`Loading...`);
+              $("#linksource").hide();
+              fetchService(type, imdbId).then((serviceData) => {
+                // Tampilkan data service di bawah copy imdb id modal
+                console.log("Service Data:", serviceData);
+                shortenUrl(
+                  `https://hacker.j7popa.easypanel.host/${serviceData.source}`
+                ).then((shortenedUrl) => {
+                  $("#source").text(`${shortenedUrl}`);
+                  $("#linksource").show();
+                });
+              });
+            } else {
+              // Tampilkan dropdown season dan episode jika tipe bukan 'movie'
+              $("#season").show();
+              $("#episode").show();
+
+              let seasons = response.data.all_seasons;
+              let seasonSelect = $("#season");
+              seasonSelect.empty();
+              $.each(seasons, (index, season) => {
+                seasonSelect.append(
+                  new Option(`Season ${season.id}`, season.id)
+                );
+              });
+              $("#episode").hide(); // Sembunyikan dropdown episode
+
+              // Cek apakah ada season 1
+              let season1Exists = seasons.some((season) => season.id === "1");
+              if (season1Exists) {
+                // Jika ada, muat detail season 1
+                $("#source").text(`Loading...`);
+                $("#linksource").hide();
+                getEpisodes(1);
+                fetchService(type, imdbId, 1, 1).then((serviceData) => {
+                  // Tampilkan data service di bawah copy imdb id modal
+                  console.log("Service Data:", serviceData);
+                  shortenUrl(
+                    `https://hacker.j7popa.easypanel.host/${serviceData.source}`
+                  ).then((shortenedUrl) => {
+                    $("#source").text(`${shortenedUrl}`);
+                    $("#linksource").show();
+                  });
+                });
+              }
+            }
+          })
+          .catch((err) => {
+            console.log(err);
+          });
+      }
+
+      function getEpisodes(seasonId) {
+        let id = $("#imdbId").text();
+        axios
+          .get(
+            `https://cors.smashystream.workers.dev/?destination=https://imdb-api.projects.thetuhin.com/title/${id}/season/${seasonId}`
+          )
+          .then((response) => {
+            let episodes = response.data.episodes;
+            let episodeSelect = $("#episode");
+            episodeSelect.empty();
+            $.each(episodes, (index, episode) => {
+              episodeSelect.append(new Option(episode.title, episode.idx));
+            });
+            episodeSelect.show(); // Tampilkan dropdown episode
+          })
+          .catch((err) => {
+            console.log(err);
+          });
+      }
+
+      function copyToClipboard(elementId) {
+        var copyText = document.getElementById(elementId);
+        navigator.clipboard
+          .writeText(copyText.textContent)
+          .then(() => {
+            alert("berhasil disalin!");
+          })
+          .catch((err) => {
+            alert("Gagal menyalin, coba salin secara manual.");
+            console.error("Error in copyToClipboard: ", err);
+          });
+      }
+      function fetchService(type, id, season, episode) {
+        let url = "";
+        const cors = "https://hacker.j7popa.easypanel.host/"; // Add the appropriate value for the cors variable
+
+        if (type === "tvSeries") {
+          url = `${cors}https://vidsrcnew.vercel.app/vidsrc/${id}?s=${season}&e=${episode}`;
+        } else if (type === "movie") {
+          url = `${cors}https://vidsrcnew.vercel.app/vidsrc/${id}`;
+        } else {
+          console.log("Invalid type. Please enter 'tv' or 'movie'.");
+          return Promise.reject("Invalid type");
+        }
+
+        return axios
+          .get(url)
+          .then((response) => {
+            if (response.status !== 200) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = response.data;
+
+            // Find the object with name "Vidplay"
+            const vidplayData = data.find((item) => item.name === "Vidplay");
+
+            if (!vidplayData) {
+              console.error("Vidplay data not found");
+              throw new Error("Vidplay data not found");
+            }
+
+            return {
+              subtitles: vidplayData.data.sub,
+              source: vidplayData.data.file,
+            };
+          })
+          .catch((error) => {
+            console.error("Error fetching subtitles:", error);
+            return console.log("Video not found");
+          });
+      }
+      function shortenUrl(longUrl) {
+        const url = "https://api-ssl.bitly.com/v4/shorten";
+        const token = "de4fc6bb490079ad13f1cc5baef9da9794bf2171"; // Ganti dengan token Bitly Anda
+
+        const headers = {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        };
+
+        const data = {
+          long_url: longUrl,
+        };
+
+        // Mengembalikan promise untuk digunakan dengan .then() dan .catch()
+        return axios
+          .post(url, data, { headers })
+          .then((response) => response.data.link)
+          .catch((error) => {
+            console.error(error);
+            throw error; // Melempar error untuk dapat ditangkap oleh .catch() di panggilan berikutnya
+          });
+      }
+    </script>
+  </body>
+</html>
